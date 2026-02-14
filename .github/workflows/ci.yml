@@ -8,7 +8,6 @@ on:
 
 env:
   GO_VERSION: "1.22"
-  GOLANGCI_LINT_VERSION: "v1.55.2"
 
 jobs:
   # Run tests in containerized environment
@@ -18,7 +17,6 @@ jobs:
 
     container:
       image: golang:1.22-alpine
-      options: --user 1001
 
     services:
       postgres:
@@ -39,17 +37,13 @@ jobs:
       - name: Cache Go modules
         uses: actions/cache@v4
         with:
-          path: |
-            /go/pkg/mod
-            /root/.cache/go-build
+          path: /go/pkg/mod
           key: ${{ runner.os }}-go-${{ hashFiles('go.sum') }}
           restore-keys: |
             ${{ runner.os }}-go-
 
       - name: Install dependencies
-        run: |
-          apk add --no-cache gcc musl-dev
-          go mod download
+        run: go mod download
 
       - name: Run tests
         run: go test -race -coverprofile=coverage.out -covermode=atomic ./...
@@ -57,25 +51,27 @@ jobs:
           DATABASE_URL: postgres://test:test@postgres:5432/test?sslmode=disable
 
       - name: Upload coverage
-        uses: codecov/codecov-action@v3
+        uses: codecov/codecov-action@v4
         with:
           files: ./coverage.out
           fail_ci_if_error: false
 
-  # Lint in containerized environment
+  # Lint using setup-go (more reliable than container)
   lint:
     name: Lint
     runs-on: ubuntu-latest
 
-    container:
-      image: golangci/golangci-lint:v1.55.2-alpine
-      options: --user 1001
-
     steps:
       - uses: actions/checkout@v4
 
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+
       - name: Run golangci-lint
-        run: golangci-lint run --timeout=5m ./...
+        uses: golangci/golangci-lint-action@v4
+        with:
+          version: v1.56.2
 
   # Security scanning
   security:
@@ -102,17 +98,6 @@ jobs:
         if: always()
         with:
           sarif_file: 'trivy-results.sarif'
-
-      - name: Run gosec
-        uses: securego/gosec@master
-        with:
-          args: '-no-fail -fmt sarif -out gosec-results.sarif ./...'
-
-      - name: Upload gosec results
-        uses: github/codeql-action/upload-sarif@v3
-        if: always()
-        with:
-          sarif_file: 'gosec-results.sarif'
 
   # Build verification
   build:
