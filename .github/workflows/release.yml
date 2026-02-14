@@ -17,11 +17,11 @@ jobs:
     permissions:
       contents: read
       packages: write
-      id-token: write  # For signing
 
     outputs:
       digest: ${{ steps.build.outputs.digest }}
       tags: ${{ steps.meta.outputs.tags }}
+      version: ${{ steps.meta.outputs.version }}
 
     steps:
       - uses: actions/checkout@v4
@@ -43,10 +43,9 @@ jobs:
           images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
           tags: |
             type=ref,event=branch
-            type=ref,event=pr
             type=sha,prefix=
             type=semver,pattern={{version}}
-            type=semver,pattern={{major}}.{{minor}}
+            type=raw,value=latest,enable={{is_default_branch}}
 
       - name: Build and push
         id: build
@@ -62,15 +61,6 @@ jobs:
           sbom: true
           build-args: |
             VERSION=${{ github.sha }}
-
-      - name: Install cosign
-        uses: sigstore/cosign-installer@v3
-
-      - name: Sign image with cosign
-        run: |
-          cosign sign --yes ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@${{ steps.build.outputs.digest }}
-        env:
-          COSIGN_EXPERIMENTAL: 1
 
   # Scan the built image
   scan-image:
@@ -96,88 +86,25 @@ jobs:
         with:
           sarif_file: 'trivy-image-results.sarif'
 
-  # Deploy to staging (on main branch push)
-  deploy-staging:
-    name: Deploy to Staging
+  # Output deployment instructions
+  deployment-info:
+    name: Deployment Info
     runs-on: ubuntu-latest
     needs: [build-image, scan-image]
-    if: github.ref == 'refs/heads/main'
-    environment:
-      name: staging
-      url: https://staging.example.com
-    permissions:
-      id-token: write
 
     steps:
-      - uses: actions/checkout@v4
-
-      # Example: AWS EKS deployment
-      - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v4
-        with:
-          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
-          aws-region: us-east-1
-
-      - name: Deploy to staging
+      - name: Print deployment commands
         run: |
-          aws eks update-kubeconfig --name staging-cluster --region us-east-1
-
-          kubectl set image deployment/taskservice \
-            taskservice=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@${{ needs.build-image.outputs.digest }} \
-            --namespace=staging
-
-          kubectl rollout status deployment/taskservice --namespace=staging --timeout=5m
-
-  # Integration tests against staging
-  integration-tests:
-    name: Integration Tests
-    runs-on: ubuntu-latest
-    needs: deploy-staging
-
-    container:
-      image: golang:1.22-alpine
-
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Run integration tests
-        run: |
-          go test -tags=integration -v ./tests/integration/...
-        env:
-          API_BASE_URL: https://staging.example.com
-
-  # Deploy to production (on tag push, requires approval)
-  deploy-production:
-    name: Deploy to Production
-    runs-on: ubuntu-latest
-    needs: [build-image, integration-tests]
-    if: startsWith(github.ref, 'refs/tags/v')
-    environment:
-      name: production
-      url: https://example.com
-    permissions:
-      id-token: write
-
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v4
-        with:
-          role-to-assume: ${{ secrets.AWS_PROD_ROLE_ARN }}
-          aws-region: us-east-1
-
-      - name: Deploy to production
-        run: |
-          aws eks update-kubeconfig --name prod-cluster --region us-east-1
-
-          kubectl set image deployment/taskservice \
-            taskservice=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@${{ needs.build-image.outputs.digest }} \
-            --namespace=production
-
-          kubectl rollout status deployment/taskservice --namespace=production --timeout=5m
-
-      - name: Create GitHub Release
-        uses: softprops/action-gh-release@v1
-        with:
-          generate_release_notes: true
+          echo "## 🚀 Image Ready for Deployment" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Image:** \`${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@${{ needs.build-image.outputs.digest }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Deploy to Local Kind Clusters" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`bash" >> $GITHUB_STEP_SUMMARY
+          echo "# Pull and deploy to staging" >> $GITHUB_STEP_SUMMARY
+          echo "make deploy-staging VERSION=${{ github.sha }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "# Pull and deploy to prod" >> $GITHUB_STEP_SUMMARY
+          echo "make deploy-prod VERSION=${{ github.sha }}" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
