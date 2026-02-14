@@ -1,0 +1,44 @@
+# Binaries
+bin/
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+server
+
+# Test
+*.test
+coverage.out
+coverage.html
+
+# Dependencies
+vendor/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Build
+dist/
+
+# Local env
+.env
+.env.local
+*.local
+
+# Security reports
+security-report.json
+*.sarif
+
+# Temporary
+tmp/
+*.tmp
+*.log
