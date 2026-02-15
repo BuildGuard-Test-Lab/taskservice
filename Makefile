@@ -148,6 +148,35 @@ status:
 	@echo "=== PROD ==="
 	@kubectl get pods -n $(NAMESPACE) --context $(PROD_CTX)
 
+## Monitoring
+monitoring-install:
+	kubectl create namespace monitoring --context $(STAGING_CTX) 2>/dev/null || true
+	kubectl create namespace monitoring --context $(PROD_CTX) 2>/dev/null || true
+	helm install monitoring prometheus-community/kube-prometheus-stack \
+		-n monitoring -f k8s/monitoring-values.yaml --kube-context $(STAGING_CTX)
+	helm install monitoring prometheus-community/kube-prometheus-stack \
+		-n monitoring -f k8s/monitoring-values.yaml --kube-context $(PROD_CTX)
+	kubectl apply -f k8s/servicemonitor.yaml --context $(STAGING_CTX)
+	kubectl apply -f k8s/servicemonitor.yaml --context $(PROD_CTX)
+
+monitoring-uninstall:
+	helm uninstall monitoring -n monitoring --kube-context $(STAGING_CTX) || true
+	helm uninstall monitoring -n monitoring --kube-context $(PROD_CTX) || true
+
+grafana-staging:
+	@echo "Opening Grafana for staging at http://localhost:3000"
+	@echo "Login: admin / admin"
+	kubectl port-forward svc/monitoring-grafana 3000:80 -n monitoring --context $(STAGING_CTX)
+
+grafana-prod:
+	@echo "Opening Grafana for prod at http://localhost:3001"
+	@echo "Login: admin / admin"
+	kubectl port-forward svc/monitoring-grafana 3001:80 -n monitoring --context $(PROD_CTX)
+
+prometheus-staging:
+	@echo "Opening Prometheus for staging at http://localhost:9090"
+	kubectl port-forward svc/monitoring-kube-prometheus-prometheus 9090:9090 -n monitoring --context $(STAGING_CTX)
+
 ## Help
 help:
 	@echo "Available targets:"
@@ -175,3 +204,8 @@ help:
 	@echo "Access:"
 	@echo "  port-forward-staging - Forward staging to localhost:8081"
 	@echo "  port-forward-prod    - Forward prod to localhost:9081"
+	@echo ""
+	@echo "Monitoring:"
+	@echo "  grafana-staging      - Open Grafana for staging (localhost:3000)"
+	@echo "  grafana-prod         - Open Grafana for prod (localhost:3001)"
+	@echo "  prometheus-staging   - Open Prometheus (localhost:9090)"
